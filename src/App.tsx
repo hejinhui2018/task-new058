@@ -97,7 +97,7 @@ export default function App() {
         onDownload={handleDownload}
         copied={copied}
       />
-      <SummaryBar stats={merge.stats} />
+      <SummaryBar stats={merge.stats} handoffCount={wb.handoffCount} />
       <div className="legend-bar">
         <span>图例：</span>
         <span className="badge badge-modified">
@@ -124,6 +124,8 @@ export default function App() {
         <ConflictSidebar
           conflicts={conflicts}
           resolutions={wb.resolutions}
+          handoffs={wb.handoffs}
+          now={wb.now}
           activeConflict={activeConflict}
           onJump={jumpToConflict}
         />
@@ -159,10 +161,16 @@ export default function App() {
             merge={merge}
             baseParagraphs={wb.base}
             resolutions={wb.resolutions}
+            handoffs={wb.handoffs}
+            now={wb.now}
             highlightBaseIdx={highlightBaseIdx}
             activeConflictId={conflicts[activeConflict]?.id ?? null}
             onResolve={wb.resolve}
             onUnresolve={wb.unresolve}
+            onClaim={wb.claimHandoff}
+            onReturn={wb.returnHandoff}
+            onReassign={wb.reassignHandoff}
+            onAcknowledge={wb.acknowledgeHandoff}
             onHighlight={setHighlightBaseIdx}
           />
         </div>

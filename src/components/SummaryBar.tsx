@@ -1,6 +1,6 @@
 import type { MergeStats } from '../lib/merge';
 
-export function SummaryBar({ stats }: { stats: MergeStats }) {
+export function SummaryBar({ stats, handoffCount }: { stats: MergeStats; handoffCount: number }) {
   return (
     <div className="summary-bar">
       <span className="stat" data-testid="stat-total">
@@ -21,6 +21,11 @@ export function SummaryBar({ stats }: { stats: MergeStats }) {
       <span className="stat" data-testid="stat-moved">
         ⇄ 移动 <b>{stats.moved}</b>
       </span>
+      {handoffCount > 0 && (
+        <span className="stat stat-handoff" data-testid="stat-handoff">
+          🔒 交接中 <b>{handoffCount}</b>
+        </span>
+      )}
       <span className="stat stat-warn" data-testid="stat-pending">
         ⚠ 待解决 <b>{stats.pending}</b>
       </span>

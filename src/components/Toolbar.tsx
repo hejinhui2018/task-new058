@@ -57,7 +57,7 @@ export function Toolbar(props: ToolbarProps) {
           ↻ 重做
         </button>
         <span className="toolbar-sep" />
-        <button className="btn" onClick={onReset} title="恢复内置示例稿件并清空全部裁决">
+        <button className="btn" onClick={onReset} title="恢复内置示例稿件并清空全部裁决与交接">
           ⟲ 恢复示例
         </button>
         <button className="btn" onClick={onCopy}>

@@ -4,27 +4,40 @@ import { diffTokens } from '../lib/diff';
 import { DiffText } from './DiffText';
 import { ConflictCard } from './ConflictCard';
 import { ProvenanceBadge, sideLabels, SIDE_LABEL } from './Badges';
+import type { Handoffs } from '../state/handoff';
 
 interface MergedPaneProps {
   merge: MergeResult;
   baseParagraphs: string[];
   resolutions: Resolutions;
+  handoffs: Handoffs;
+  now: number;
   highlightBaseIdx: number | null;
   activeConflictId: string | null;
   onResolve: (id: string, choice: Choice, manualText?: string) => void;
   onUnresolve: (id: string) => void;
+  onClaim: (id: string, reviewer: string, ttlMs: number) => void;
+  onReturn: (id: string) => void;
+  onReassign: (id: string, reviewer: string, ttlMs: number) => void;
+  onAcknowledge: (id: string) => void;
   onHighlight: (baseIdx: number | null) => void;
 }
 
-/** 合并结果栏：自动合并的段落 + 待处理冲突卡片。 */
+/** 合并结果栏：自动合并的段落 + 待处理冲突卡片（含审校交接状态）。 */
 export function MergedPane({
   merge,
   baseParagraphs,
   resolutions,
+  handoffs,
+  now,
   highlightBaseIdx,
   activeConflictId,
   onResolve,
   onUnresolve,
+  onClaim,
+  onReturn,
+  onReassign,
+  onAcknowledge,
   onHighlight,
 }: MergedPaneProps) {
   const conflictById = useMemo(() => new Map(merge.conflicts.map((c) => [c.id, c])), [merge.conflicts]);
@@ -52,10 +65,16 @@ export function MergedPane({
                 conflict={conflict}
                 block={block}
                 resolution={resolutions[block.conflictId]}
+                handoff={handoffs[block.conflictId]}
+                now={now}
                 active={activeConflictId === block.conflictId}
                 highlighted={highlightBaseIdx === block.baseIdx}
                 onResolve={onResolve}
                 onUnresolve={onUnresolve}
+                onClaim={onClaim}
+                onReturn={onReturn}
+                onReassign={onReassign}
+                onAcknowledge={onAcknowledge}
               />
             );
           }

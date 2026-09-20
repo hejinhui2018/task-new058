@@ -1,4 +1,5 @@
 import type { Conflict, ConflictType, Resolutions } from '../lib/merge';
+import { handoffStatus, isHandoffLocked, type Handoffs } from '../state/handoff';
 
 export const CONFLICT_TYPE_LABEL: Record<ConflictType, string> = {
   'edit-edit': '双方修改了同一段落',
@@ -24,11 +25,20 @@ export const CHOICE_LABEL: Record<string, string> = {
 interface ConflictSidebarProps {
   conflicts: Conflict[];
   resolutions: Resolutions;
+  handoffs: Handoffs;
+  now: number;
   activeConflict: number;
   onJump: (index: number) => void;
 }
 
-export function ConflictSidebar({ conflicts, resolutions, activeConflict, onJump }: ConflictSidebarProps) {
+export function ConflictSidebar({
+  conflicts,
+  resolutions,
+  handoffs,
+  now,
+  activeConflict,
+  onJump,
+}: ConflictSidebarProps) {
   const pendingCount = conflicts.filter((c) => !resolutions[c.id]).length;
   return (
     <aside className="conflict-sidebar">
@@ -40,21 +50,34 @@ export function ConflictSidebar({ conflicts, resolutions, activeConflict, onJump
       <ul className="conflict-nav-list">
         {conflicts.map((c, i) => {
           const res = resolutions[c.id];
+          const handoff = handoffs[c.id];
+          const hStatus = !res && handoff ? handoffStatus(handoff, c, now) : null;
+          const locked = hStatus !== null && isHandoffLocked(hStatus);
+          const icon = res ? '✓' : locked ? '🔒' : hStatus === 'expired' ? '⏰' : '⚠';
+          const statusText = res
+            ? CHOICE_LABEL[res.choice]
+            : hStatus === 'active'
+              ? `审校中·${handoff!.reviewer}`
+              : hStatus === 'stale'
+                ? '待复核'
+                : hStatus === 'expired'
+                  ? '已超时'
+                  : '待解决';
           return (
             <li key={c.id}>
               <button
                 className={`conflict-nav-item ${i === activeConflict ? 'is-active' : ''} ${
                   res ? 'is-resolved' : 'is-pending'
-                }`}
+                } ${locked ? 'is-locked' : ''}`}
                 onClick={() => onJump(i)}
               >
                 <span className="nav-icon" aria-hidden>
-                  {res ? '✓' : '⚠'}
+                  {icon}
                 </span>
                 <span className="nav-text">
                   第{c.baseIdx + 1}段 · {CONFLICT_TYPE_SHORT[c.type]}
                 </span>
-                <span className="nav-status">{res ? CHOICE_LABEL[res.choice] : '待解决'}</span>
+                <span className="nav-status">{statusText}</span>
               </button>
             </li>
           );
