@@ -1,5 +1,5 @@
 import { alignVersion, type Alignment } from './align';
-import { normalizeText } from './text';
+import { hashString, normalizeText } from './text';
 
 /**
  * 三方段落合并引擎。
@@ -28,6 +28,13 @@ export type Resolutions = Record<string, Resolution>;
 
 export interface Conflict {
   id: string;
+  /**
+   * 稳定身份：仅由冲突内容（底稿/双方文本、移动锚点、冲突类型）派生，
+   * 与段落下标无关。来源文稿编辑后，同一处冲突仍能据此找回裁决与交接记录。
+   */
+  key: string;
+  /** 内容指纹：来源变化导致指纹变化时，已保存的裁决/交接需要重新确认 */
+  fingerprint: string;
   type: ConflictType;
   baseIdx: number;
   baseText: string;
@@ -53,7 +60,8 @@ export interface MergedBlock {
   baseIdx: number | null;
   /** 应用裁决后的最终文本（未解决冲突为默认文本） */
   text: string;
-  status: 'auto' | 'pending' | 'resolved' | 'removed';
+  /** review = 来源文稿已变化，旧裁决/交接被标记为待复核，不能直接提交/导出 */
+  status: 'auto' | 'pending' | 'review' | 'resolved' | 'removed';
   provenance: Provenance;
   /** 内容相对底稿被哪些方修改过 */
   changedBy: Side[];
@@ -77,6 +85,8 @@ export interface MergeStats {
   moved: number;
   pending: number;
   resolved: number;
+  /** 来源更新后需要重新确认的冲突数（旧裁决或交接仍保留，但暂不生效） */
+  needsReview: number;
 }
 
 export interface MergeResult {
@@ -94,6 +104,59 @@ interface SideState {
   modified: boolean;
   /** 移动锚点（仅 moved 时有效，-1 表示移到文首） */
   anchor: number | null;
+}
+
+/** 锚点身份：用锚点段落文本而非下标，底稿他处增删段落导致下标平移时身份不变。 */
+function anchorRef(anchor: number | null, base: string[]): string {
+  if (anchor === null) return '';
+  if (anchor < 0) return '文首';
+  return normalizeText(base[anchor] ?? '');
+}
+
+/** 冲突内容指纹的原始材料：含三方全部文本，任一侧内容变化都会改变。 */
+function conflictFingerprint(
+  c: Omit<Conflict, 'key' | 'fingerprint'>,
+  base: string[],
+): string {
+  return hashString(
+    [
+      c.type,
+      normalizeText(c.baseText),
+      c.brandText === null ? '∅' : normalizeText(c.brandText),
+      c.legalText === null ? '∅' : normalizeText(c.legalText),
+      `ba:${anchorRef(c.brandAnchor, base)}`,
+      `la:${anchorRef(c.legalAnchor, base)}`,
+    ].join('|'),
+  );
+}
+
+/**
+ * 稳定身份：只锚定"底稿哪一段 + 冲突类型 + 移动结构"，不含双方改写内容。
+ * 因此编辑品牌版/法务版文字、在底稿别处增删段落导致下标移动，都不会改变身份；
+ * 身份找到后再用 fingerprint 判断内容是否已变化（待复核）。
+ */
+export function makeConflictKey(
+  c: Pick<Conflict, 'type' | 'baseText' | 'brandAnchor' | 'legalAnchor'>,
+  base: string[],
+): string {
+  return `k${hashString(
+    [
+      c.type,
+      normalizeText(c.baseText),
+      `ba:${anchorRef(c.brandAnchor, base)}`,
+      `la:${anchorRef(c.legalAnchor, base)}`,
+    ].join('|'),
+  )}`;
+}
+
+/** 给冲突补上稳定身份 key 与内容指纹。 */
+function withIdentity<C extends Omit<Conflict, 'key' | 'fingerprint'>>(c: C, base: string[]): Conflict {
+  return { ...c, key: makeConflictKey(c, base), fingerprint: conflictFingerprint(c, base) };
+}
+
+export interface MergeOptions {
+  /** 来源文稿已变化、需要重新确认的冲突 key 集合；这些冲突即使有旧裁决也按待复核处理 */
+  reviewKeys?: ReadonlySet<string>;
 }
 
 function statesFor(align: Alignment, ver: string[], baseLen: number): SideState[] {
@@ -141,6 +204,7 @@ function buildConflictItem(
   movedBy: Side[],
   resolution: Resolution | undefined,
   states: { b: SideState; l: SideState },
+  underReview: boolean,
 ): Item {
   const c = conflict;
   const i = c.baseIdx;
@@ -233,6 +297,11 @@ function buildConflictItem(
   if (states.b.modified) changedBy.push('brand');
   if (states.l.modified) changedBy.push('legal');
 
+  if (underReview) {
+    // 来源文稿已变化：旧裁决（若有）保留备查，但本块视为待复核，不能当作已定稿
+    status = 'review';
+  }
+
   return {
     slot,
     order: i,
@@ -258,7 +327,9 @@ export function buildMergedDocument(
   brand: string[],
   legal: string[],
   resolutions: Resolutions,
+  options: MergeOptions = {},
 ): MergeResult {
+  const reviewKeys = options.reviewKeys ?? new Set<string>();
   const alignBrand = alignVersion(base, brand);
   const alignLegal = alignVersion(base, legal);
   const sb = statesFor(alignBrand, brand, base.length);
@@ -295,7 +366,7 @@ export function buildMergedDocument(
       if (other.modified || other.moved) {
         // 另一方动了它（改内容或挪位置）→ 冲突
         const type: ConflictType = other.moved ? 'delete-move' : 'delete-edit';
-        const conflict: Conflict = {
+        const conflict = withIdentity({
           id: `c${i}`,
           type,
           baseIdx: i,
@@ -304,9 +375,18 @@ export function buildMergedDocument(
           legalText: l.text,
           brandAnchor: b.moved ? b.anchor : null,
           legalAnchor: l.moved ? l.anchor : null,
-        };
+        }, base);
         conflicts.push(conflict);
-        items.push(buildConflictItem(conflict, auto, movedBy, resolutions[conflict.id], { b, l }));
+        items.push(
+          buildConflictItem(
+            conflict,
+            auto,
+            movedBy,
+            resolutions[conflict.key] ?? resolutions[conflict.id],
+            { b, l },
+            reviewKeys.has(conflict.key),
+          ),
+        );
       } else {
         // 另一方没动 → 自动删除
         autoDeleted++;
@@ -319,7 +399,7 @@ export function buildMergedDocument(
     const positionConflict = moveTargets.size > 1;
 
     if (positionConflict || contentConflict) {
-      const conflict: Conflict = {
+      const conflict = withIdentity({
         id: `c${i}`,
         type: positionConflict ? 'move-move' : 'edit-edit',
         baseIdx: i,
@@ -328,9 +408,18 @@ export function buildMergedDocument(
         legalText: l.text,
         brandAnchor: b.moved ? b.anchor : null,
         legalAnchor: l.moved ? l.anchor : null,
-      };
+      }, base);
       conflicts.push(conflict);
-      items.push(buildConflictItem(conflict, auto, movedBy, resolutions[conflict.id], { b, l }));
+      items.push(
+        buildConflictItem(
+          conflict,
+          auto,
+          movedBy,
+          resolutions[conflict.key] ?? resolutions[conflict.id],
+          { b, l },
+          reviewKeys.has(conflict.key),
+        ),
+      );
       continue;
     }
 
@@ -422,8 +511,13 @@ export function buildMergedDocument(
     autoDeleted,
     removedByResolution: blocks.filter((b) => b.status === 'removed').length,
     moved: blocks.filter((b) => b.moved !== null && b.status !== 'removed').length,
-    pending: conflicts.filter((c) => !resolutions[c.id]).length,
-    resolved: conflicts.filter((c) => resolutions[c.id]).length,
+    pending: conflicts.filter(
+      (c) => !(resolutions[c.key] ?? resolutions[c.id]) || reviewKeys.has(c.key),
+    ).length,
+    resolved: conflicts.filter(
+      (c) => (resolutions[c.key] ?? resolutions[c.id]) && !reviewKeys.has(c.key),
+    ).length,
+    needsReview: conflicts.filter((c) => reviewKeys.has(c.key)).length,
   };
 
   return {
@@ -434,14 +528,18 @@ export function buildMergedDocument(
   };
 }
 
-/** 导出合并稿纯文本；未解决冲突以标记行保留底稿原文。 */
+/** 导出合并稿纯文本；未解决/待复核冲突以标记行保留，避免被当成已定稿内容直接使用。 */
 export function exportMergedText(merge: MergeResult): string {
   return merge.blocks
     .filter((b) => b.status !== 'removed')
-    .map((b) =>
-      b.status === 'pending'
-        ? `【未解决冲突 · 底稿第${(b.baseIdx ?? 0) + 1}段，暂保留底稿原文】\n${b.text}`
-        : b.text,
-    )
+    .map((b) => {
+      if (b.status === 'pending') {
+        return `【未解决冲突 · 底稿第${(b.baseIdx ?? 0) + 1}段，暂保留底稿原文】\n${b.text}`;
+      }
+      if (b.status === 'review') {
+        return `【待复核冲突 · 底稿第${(b.baseIdx ?? 0) + 1}段，来源文稿已更新，旧裁决暂不生效】\n${b.text}`;
+      }
+      return b.text;
+    })
     .join('\n\n');
 }

@@ -39,3 +39,21 @@ export function splitParagraphs(text: string): string[] {
 export function joinParagraphs(paragraphs: string[]): string {
   return paragraphs.join('\n\n');
 }
+
+/**
+ * 稳定的字符串哈希，用于给冲突内容生成跨刷新一致的身份。
+ * 拼接两路不同参数的 FNV-1a（等效 64 位），同一内容始终得到同一结果，
+ * 不依赖下标或出现顺序。
+ */
+export function hashString(s: string): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0xcbf29ce4;
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i);
+    h1 ^= code;
+    h1 = Math.imul(h1, 0x01000193);
+    h2 ^= code;
+    h2 = Math.imul(h2, 0x01000193) ^ 0x9e3779b1;
+  }
+  return (h1 >>> 0).toString(36) + (h2 >>> 0).toString(36);
+}

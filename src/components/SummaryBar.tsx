@@ -1,6 +1,15 @@
 import type { MergeStats } from '../lib/merge';
+import type { Handoffs } from '../lib/handoff';
 
-export function SummaryBar({ stats }: { stats: MergeStats }) {
+interface SummaryBarProps {
+  stats: MergeStats;
+  handoffs: Handoffs;
+}
+
+export function SummaryBar({ stats, handoffs }: SummaryBarProps) {
+  const handoffCount = Object.values(handoffs).filter(
+    (h) => h.status === 'assigned' || h.status === 'claimed',
+  ).length;
   return (
     <div className="summary-bar">
       <span className="stat" data-testid="stat-total">
@@ -21,6 +30,14 @@ export function SummaryBar({ stats }: { stats: MergeStats }) {
       <span className="stat" data-testid="stat-moved">
         ⇄ 移动 <b>{stats.moved}</b>
       </span>
+      <span className="stat stat-handoff" data-testid="stat-handoff">
+        🔒 交接中 <b>{handoffCount}</b>
+      </span>
+      {stats.needsReview > 0 && (
+        <span className="stat stat-review" data-testid="stat-review">
+          ↻ 待复核 <b>{stats.needsReview}</b>
+        </span>
+      )}
       <span className="stat stat-warn" data-testid="stat-pending">
         ⚠ 待解决 <b>{stats.pending}</b>
       </span>

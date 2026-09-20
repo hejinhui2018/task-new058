@@ -1,4 +1,5 @@
 import type { Conflict, ConflictType, Resolutions } from '../lib/merge';
+import type { Handoffs } from '../lib/handoff';
 
 export const CONFLICT_TYPE_LABEL: Record<ConflictType, string> = {
   'edit-edit': '双方修改了同一段落',
@@ -24,12 +25,25 @@ export const CHOICE_LABEL: Record<string, string> = {
 interface ConflictSidebarProps {
   conflicts: Conflict[];
   resolutions: Resolutions;
+  handoffs: Handoffs;
+  reviewKeys: ReadonlySet<string>;
+  identity: string;
   activeConflict: number;
   onJump: (index: number) => void;
 }
 
-export function ConflictSidebar({ conflicts, resolutions, activeConflict, onJump }: ConflictSidebarProps) {
-  const pendingCount = conflicts.filter((c) => !resolutions[c.id]).length;
+export function ConflictSidebar({
+  conflicts,
+  resolutions,
+  handoffs,
+  reviewKeys,
+  identity,
+  activeConflict,
+  onJump,
+}: ConflictSidebarProps) {
+  const pendingCount = conflicts.filter(
+    (c) => !resolutions[c.key] || reviewKeys.has(c.key),
+  ).length;
   return (
     <aside className="conflict-sidebar">
       <div className="sidebar-title">冲突列表（{conflicts.length}）</div>
@@ -39,22 +53,42 @@ export function ConflictSidebar({ conflicts, resolutions, activeConflict, onJump
       )}
       <ul className="conflict-nav-list">
         {conflicts.map((c, i) => {
-          const res = resolutions[c.id];
+          const res = resolutions[c.key];
+          const h = handoffs[c.key];
+          const review = reviewKeys.has(c.key);
+          let stateClass = 'is-pending';
+          let icon = '⚠';
+          let statusText = '待解决';
+          if (review) {
+            stateClass = 'is-review';
+            icon = '↻';
+            statusText = '待复核';
+          } else if (res) {
+            stateClass = 'is-resolved';
+            icon = '✓';
+            statusText = CHOICE_LABEL[res.choice];
+          } else if (h && (h.status === 'claimed' || h.status === 'assigned')) {
+            stateClass = 'is-locked';
+            icon = '🔒';
+            statusText = h.owner === identity ? `你处理中` : `${handoffs[c.key]?.owner ?? '审校'}处理中`;
+          } else if (h?.status === 'timeout') {
+            statusText = '已超时';
+          } else if (h?.status === 'returned') {
+            statusText = '已退回';
+          }
           return (
-            <li key={c.id}>
+            <li key={c.key}>
               <button
-                className={`conflict-nav-item ${i === activeConflict ? 'is-active' : ''} ${
-                  res ? 'is-resolved' : 'is-pending'
-                }`}
+                className={`conflict-nav-item ${i === activeConflict ? 'is-active' : ''} ${stateClass}`}
                 onClick={() => onJump(i)}
               >
                 <span className="nav-icon" aria-hidden>
-                  {res ? '✓' : '⚠'}
+                  {icon}
                 </span>
                 <span className="nav-text">
                   第{c.baseIdx + 1}段 · {CONFLICT_TYPE_SHORT[c.type]}
                 </span>
-                <span className="nav-status">{res ? CHOICE_LABEL[res.choice] : '待解决'}</span>
+                <span className="nav-status">{statusText}</span>
               </button>
             </li>
           );

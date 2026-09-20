@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { Choice, MergeResult, Resolutions } from '../lib/merge';
+import type { Handoffs, ReviewerId } from '../lib/handoff';
 import { diffTokens } from '../lib/diff';
 import { DiffText } from './DiffText';
 import { ConflictCard } from './ConflictCard';
@@ -9,10 +10,20 @@ interface MergedPaneProps {
   merge: MergeResult;
   baseParagraphs: string[];
   resolutions: Resolutions;
+  handoffs: Handoffs;
+  reviewKeys: ReadonlySet<string>;
+  identity: ReviewerId;
+  now: number;
+  reviewers: string[];
   highlightBaseIdx: number | null;
   activeConflictId: string | null;
   onResolve: (id: string, choice: Choice, manualText?: string) => void;
   onUnresolve: (id: string) => void;
+  onAssign: (key: string, to: ReviewerId) => void;
+  onClaim: (key: string) => void;
+  onReturn: (key: string) => void;
+  onForward: (key: string, to: ReviewerId) => void;
+  onConfirmReview: (key: string) => void;
   onHighlight: (baseIdx: number | null) => void;
 }
 
@@ -21,10 +32,20 @@ export function MergedPane({
   merge,
   baseParagraphs,
   resolutions,
+  handoffs,
+  reviewKeys,
+  identity,
+  now,
+  reviewers,
   highlightBaseIdx,
   activeConflictId,
   onResolve,
   onUnresolve,
+  onAssign,
+  onClaim,
+  onReturn,
+  onForward,
+  onConfirmReview,
   onHighlight,
 }: MergedPaneProps) {
   const conflictById = useMemo(() => new Map(merge.conflicts.map((c) => [c.id, c])), [merge.conflicts]);
@@ -34,6 +55,12 @@ export function MergedPane({
       <div className="pane-header">
         <h2>合并结果</h2>
         <span className="pane-count">{merge.stats.total} 段</span>
+        {merge.stats.needsReview > 0 && (
+          <span className="badge badge-review" data-testid="stat-review-badge">
+            <i>↻</i>
+            {merge.stats.needsReview} 个待复核
+          </span>
+        )}
         {merge.stats.pending > 0 && (
           <span className="badge badge-pending">
             <i>⚠</i>
@@ -51,11 +78,21 @@ export function MergedPane({
                 key={block.id}
                 conflict={conflict}
                 block={block}
-                resolution={resolutions[block.conflictId]}
+                resolution={resolutions[conflict.key]}
+                handoff={handoffs[conflict.key]}
+                underReview={reviewKeys.has(conflict.key)}
                 active={activeConflictId === block.conflictId}
                 highlighted={highlightBaseIdx === block.baseIdx}
+                identity={identity}
+                now={now}
+                reviewers={reviewers}
                 onResolve={onResolve}
                 onUnresolve={onUnresolve}
+                onAssign={onAssign}
+                onClaim={onClaim}
+                onReturn={onReturn}
+                onForward={onForward}
+                onConfirmReview={onConfirmReview}
               />
             );
           }

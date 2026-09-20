@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useWorkbench } from './state/useWorkbench';
+import { useWorkbench, SUGGESTED_REVIEWERS } from './state/useWorkbench';
 import { exportMergedText } from './lib/merge';
 import { Toolbar } from './components/Toolbar';
 import { SummaryBar } from './components/SummaryBar';
@@ -97,7 +97,43 @@ export default function App() {
         onDownload={handleDownload}
         copied={copied}
       />
-      <SummaryBar stats={merge.stats} />
+      <div className="identity-bar">
+        <label className="identity-field">
+          当前身份：
+          <select
+            aria-label="当前身份"
+            value={SUGGESTED_REVIEWERS.includes(wb.identity) ? wb.identity : '__custom'}
+            onChange={(e) => {
+              if (e.target.value !== '__custom') wb.setIdentity(e.target.value);
+            }}
+          >
+            {SUGGESTED_REVIEWERS.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+            {!SUGGESTED_REVIEWERS.includes(wb.identity) && <option value={wb.identity}>{wb.identity}</option>}
+            <option value="__custom">自定义…</option>
+          </select>
+        </label>
+        <input
+          className="handoff-input identity-input"
+          aria-label="自定义身份"
+          placeholder="输入你的名字后回车"
+          value={SUGGESTED_REVIEWERS.includes(wb.identity) ? '' : wb.identity}
+          onChange={(e) => wb.setIdentity(e.target.value)}
+        />
+        <span className="identity-hint">切换身份可模拟把冲突交给其他审校人；锁定只影响对应冲突。</span>
+      </div>
+      {wb.actionError && (
+        <div className="action-toast" role="alert" data-testid="action-error">
+          <span>⚠ {wb.actionError.message}</span>
+          <button className="btn btn-small" onClick={wb.clearActionError} aria-label="关闭提示">
+            ✕
+          </button>
+        </div>
+      )}
+      <SummaryBar stats={merge.stats} handoffs={wb.handoffs} />
       <div className="legend-bar">
         <span>图例：</span>
         <span className="badge badge-modified">
@@ -112,6 +148,9 @@ export default function App() {
         <span className="badge badge-moved">
           <i>⇄</i>移动
         </span>
+        <span className="badge badge-review">
+          <i>↻</i>待复核
+        </span>
         <span>
           <del>删除线</del>＝删去的文字
         </span>
@@ -124,6 +163,9 @@ export default function App() {
         <ConflictSidebar
           conflicts={conflicts}
           resolutions={wb.resolutions}
+          handoffs={wb.handoffs}
+          reviewKeys={wb.reviewKeys}
+          identity={wb.identity}
           activeConflict={activeConflict}
           onJump={jumpToConflict}
         />
@@ -159,10 +201,20 @@ export default function App() {
             merge={merge}
             baseParagraphs={wb.base}
             resolutions={wb.resolutions}
+            handoffs={wb.handoffs}
+            reviewKeys={wb.reviewKeys}
+            identity={wb.identity}
+            now={wb.now}
+            reviewers={SUGGESTED_REVIEWERS}
             highlightBaseIdx={highlightBaseIdx}
             activeConflictId={conflicts[activeConflict]?.id ?? null}
             onResolve={wb.resolve}
             onUnresolve={wb.unresolve}
+            onAssign={wb.assign}
+            onClaim={wb.claim}
+            onReturn={wb.handBack}
+            onForward={wb.forward}
+            onConfirmReview={wb.confirmAsIs}
             onHighlight={setHighlightBaseIdx}
           />
         </div>
